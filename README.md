@@ -1,3 +1,5 @@
+# Hypothread
+
 Hypothread executes the command it was given as arguments, but
 modifies its CPU affinity by selectively disabling logical
 CPUs belonging to identical physical processor cores, so that

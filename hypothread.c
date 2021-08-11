@@ -81,7 +81,7 @@ main(int argc, char *argv[])
 {
     if (argc <= 1) {
         fprintf(stderr, "usage: hypothread command [argument] ...\n");
-        exit(1);
+        return 1;
     }
     if (get_nprocs_conf() != get_nprocs()) {
         fprintf(stderr, "hypothread: only %d cpus are available out of %d configured\n", get_nprocs(), get_nprocs_conf());
@@ -90,16 +90,25 @@ main(int argc, char *argv[])
     CPU_ZERO(&mask);
     int r = sched_getaffinity(0, sizeof(mask), &mask);
     if (r != 0) {
-        printf("sched_getaffinity() failed with code %d: %s\n", errno, strerror(errno));
-        exit(1);
+        fprintf(stderr, "sched_getaffinity() failed with code %d: %s\n", errno, strerror(errno));
+        goto finally;
     }
-    fprintf(stderr, "hypothread: affinity set to %d cpus out of %d\n", CPU_COUNT(&mask), get_nprocs());
+    fprintf(stderr, "hypothread: affinity set to %d cpus out of %d available\n", CPU_COUNT(&mask), get_nprocs());
     int *physical_id = calloc(CPU_SETSIZE, sizeof(int));
+    if (physical_id == NULL) {
+        fprintf(stderr, "hypothread: failed to allocate %zu bytes\n", CPU_SETSIZE*sizeof(int));
+        goto finally;
+    }
     int *core_id = calloc(CPU_SETSIZE, sizeof(int));
+    if (core_id == NULL) {
+        free(physical_id);
+        fprintf(stderr, "hypothread: failed to allocate %zu bytes\n", CPU_SETSIZE*sizeof(int));
+        goto finally;
+    }
     int maxprocessor = parse_proc_cpuinfo(CPU_SETSIZE, physical_id, core_id);
     if (maxprocessor < 0) {
-        fprintf(stderr, "hypothread: can't open /proc/cpuinfo");
-        exit(1);
+        fprintf(stderr, "hypothread: failed to read /proc/cpuinfo");
+        goto finally;
     };
     for (int i = 0; i <= maxprocessor; i++) {
         if (!CPU_ISSET(i, &mask)) continue;
@@ -113,7 +122,7 @@ main(int argc, char *argv[])
             }
         }
         if (repeat) {
-            fprintf(stderr, "hypothread: cpu %d, physical id %d, core id %d => will skip\n", i, physical_id[i], core_id[i]);
+            fprintf(stderr, "hypothread: cpu %d, physical id %d, core id %d => will disable\n", i, physical_id[i], core_id[i]);
             CPU_CLR(i, &mask);
         } else {
             fprintf(stderr, "hypothread: cpu %d, physical id %d, core id %d\n", i, physical_id[i], core_id[i]);
@@ -124,9 +133,10 @@ main(int argc, char *argv[])
     fprintf(stderr, "hypothread: will use %d cpus\n", CPU_COUNT(&mask));
     r = sched_setaffinity(0, sizeof(mask), &mask);
     if (r != 0) {
-        printf("sched_setaffinity() failed with code %d: %s\n", errno, strerror(errno));
-        exit(1);
+        fprintf(stderr, "sched_setaffinity() failed with code %d: %s\n", errno, strerror(errno));
+        goto finally;
     }
+finally:
     fprintf(stderr, "hypothread: will run");
     for (int i = 1; i < argc; i++) {
         fprintf(stderr, " [%s]", argv[i]);
